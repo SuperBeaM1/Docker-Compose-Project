@@ -1,0 +1,79 @@
+<!--
+  index.html
+  ----------
+  หน้าเว็บเดียวสำหรับ River Trash Detector Demo
+  - อัปโหลดรูปภาพไปให้ backend (ผ่าน /api/detect ซึ่ง nginx จะ proxy
+    ไปยัง backend container ให้อัตโนมัติ ดูรายละเอียดใน nginx.conf)
+  - แสดงผลลัพธ์การตรวจจับ และสถิติสะสมจาก /api/stats
+-->
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <title>River Trash Detector Demo</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 700px; margin: 40px auto; padding: 0 16px; background: #0f172a; color: #e2e8f0; }
+    h1 { color: #38bdf8; }
+    .card { background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+    button { background: #38bdf8; border: none; padding: 10px 18px; border-radius: 8px; cursor: pointer; font-weight: bold; }
+    #result, #stats { white-space: pre-wrap; font-family: monospace; font-size: 14px; }
+    img#preview { max-width: 100%; border-radius: 8px; margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <h1>🌊 River Trash Detector Demo</h1>
+
+  <div class="card">
+    <p>อัปโหลดรูปภาพ (เช่น รูปขวดน้ำ/แก้ว) เพื่อจำลองการตรวจจับขยะลอยน้ำ</p>
+    <input type="file" id="fileInput" accept="image/*" />
+    <button onclick="detect()">ตรวจจับ</button>
+    <img id="preview" style="display:none" />
+    <div id="result"></div>
+  </div>
+
+  <div class="card">
+    <h3>สถิติสะสม</h3>
+    <div id="stats">กำลังโหลด...</div>
+  </div>
+
+  <script>
+    // ทุก request เรียกไปที่ "/api/..." ซึ่งเป็น path บน nginx container นี้เอง
+    // nginx.conf จะเป็นคนตัดสินใจ proxy ต่อไปยัง backend container
+    // -> frontend ไม่จำเป็นต้องรู้ hostname หรือ port จริงของ backend เลย
+    const API_BASE = "/api";
+
+    async function detect() {
+      const input = document.getElementById("fileInput");
+      const resultBox = document.getElementById("result");
+      const preview = document.getElementById("preview");
+
+      if (!input.files.length) {
+        resultBox.textContent = "กรุณาเลือกไฟล์รูปภาพก่อน";
+        return;
+      }
+
+      preview.src = URL.createObjectURL(input.files[0]);
+      preview.style.display = "block";
+
+      const formData = new FormData();
+      formData.append("file", input.files[0]);
+
+      resultBox.textContent = "กำลังตรวจจับ...";
+      const res = await fetch(`${API_BASE}/detect`, { method: "POST", body: formData });
+      const data = await res.json();
+      resultBox.textContent = JSON.stringify(data, null, 2);
+
+      loadStats();
+    }
+
+    async function loadStats() {
+      const statsBox = document.getElementById("stats");
+      const res = await fetch(`${API_BASE}/stats`);
+      const data = await res.json();
+      statsBox.textContent = JSON.stringify(data, null, 2);
+    }
+
+    loadStats();
+  </script>
+</body>
+</html>

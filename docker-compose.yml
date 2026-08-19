@@ -1,0 +1,84 @@
+# =====================================================================
+# docker-compose.yml
+# ---------------------------------------------------------------------
+# ประกอบร่าง 3 containers ให้ทำงานร่วมกันเป็นระบบ River Trash Detector:
+#   1) redis    - เก็บสถิติจำนวนขยะสะสม (official image)
+#   2) backend  - FastAPI + YOLOv8n ตรวจจับขยะจากรูปภาพ (custom image)
+#   3) frontend - Nginx เสิร์ฟหน้าเว็บ + proxy ไป backend (custom image)
+# =====================================================================
+
+services:
+
+  # -------------------------------------------------------------
+  # redis: เก็บ key-value จำนวนขยะสะสมแยกตามคลาส
+  # ใช้ official image ตรง ๆ ได้ เพราะโจทย์กำหนดแค่ "อย่างน้อย 1 image
+  # ต้องสร้างเอง" ซึ่งเราสร้างเองแล้วทั้ง backend และ frontend
+  # -------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: trash-redis
+    # ตั้งค่าให้ redis เขียนข้อมูลลงดิสก์ (append-only file)
+    # เพื่อให้สถิติไม่หายเวลา container restart
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    networks:
+      - trash-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # -------------------------------------------------------------
+  # backend: build จาก ./backend/Dockerfile ที่เขียนเอง
+  # -------------------------------------------------------------
+  backend:
+    build:
+      context: ./backend      # โฟลเดอร์ที่มี Dockerfile และโค้ด backend
+      dockerfile: Dockerfile
+    container_name: trash-backend
+    environment:
+      # ส่งชื่อ service ของ redis เข้าไปเป็น env var แทนการ hardcode
+      # ในโค้ด main.py -> backend รู้จัก redis ผ่านชื่อ "redis" ที่ Docker
+      # สร้าง internal DNS ให้อัตโนมัติภายใน network เดียวกัน
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      redis:
+        condition: service_healthy   # รอให้ redis พร้อมก่อน backend ค่อยเริ่ม
+    networks:
+      - trash-net
+    # ไม่ publish port ออกสู่ host โดยตรง เพราะให้ frontend (nginx)
+    # เป็นทางเข้าเดียวของระบบ (best practice: ลด attack surface)
+
+  # -------------------------------------------------------------
+  # frontend: build จาก ./frontend/Dockerfile ที่เขียนเอง
+  # -------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: trash-frontend
+    ports:
+      # เปิด port 8080 ของเครื่อง host ให้ map เข้า port 80 ของ container
+      # -> ผู้ใช้เข้าเว็บผ่าน http://localhost:8080
+      - "8080:80"
+    depends_on:
+      - backend
+    networks:
+      - trash-net
+
+# -----------------------------------------------------------------
+# network กลางให้ทั้ง 3 containers คุยกันได้ด้วยชื่อ service
+# (เทียบเท่ากับการสร้าง private network แยกจาก network อื่นบนเครื่อง)
+# -----------------------------------------------------------------
+networks:
+  trash-net:
+    driver: bridge
+
+# -----------------------------------------------------------------
+# volume สำหรับเก็บข้อมูล redis แบบถาวร ไม่หายเมื่อลบ container
+# -----------------------------------------------------------------
+volumes:
+  redis-data:
