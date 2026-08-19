@@ -5,16 +5,16 @@ Backend service สำหรับ "River Trash Detector Demo"
 
 หน้าที่ของไฟล์นี้:
 1. รับรูปภาพที่อัปโหลดมาจาก frontend
-2. ใช้โมเดล YOLOv8n (ultralytics) ตรวจจับวัตถุในรูป
-3. กรองเฉพาะคลาสที่เกี่ยวกับ "ขยะ" ที่มีอยู่ใน pretrained COCO model
-   (bottle, cup) เพื่อจำลองการนับขยะลอยน้ำแบบง่าย ๆ
-4. บันทึกจำนวนที่นับได้สะสมลงใน Redis (container ที่ 3 ใน docker-compose)
-5. เปิด endpoint ให้ frontend ดึงสถิติสะสมไปแสดงผลบนแดชบอร์ด
+2. ใช้โมเดล YOLOv8n ที่เทรนเอง (best.pt) ตรวจจับขยะ 3 ประเภท:
+   plastic, organic, recyclable
+3. บันทึกจำนวนที่นับได้สะสมลงใน Redis แยกตามประเภท (container ที่ 3
+   ใน docker-compose)
+4. เปิด endpoint ให้ frontend ดึงสถิติสะสมไปแสดงผลบนแดชบอร์ด
 
-หมายเหตุ: โปรเจกต์จริง (river-trash-detection) ใช้โมเดลที่เทรนเองบน
-Roboflow dataset "floating-waste" (bottle, paper, plastic, can, carton)
-และรันบน Jetson Nano ผ่าน RTSP แต่เดโมนี้ตัด hardware ออก
-เพื่อให้ containerize และรันบนเครื่องใครก็ได้ผ่าน docker compose
+หมายเหตุ: โมเดล best.pt เทรนมาจากงาน river-trash-detection เดิมของผู้เขียน
+(Roboflow dataset, เทรนบน Google Colab) นำมาใช้ต่อในเดโมนี้โดยตัด hardware
+(Jetson Nano/RTSP) ออก เพื่อให้ containerize และรันบนเครื่องใครก็ได้ผ่าน
+docker compose
 """
 
 import io
@@ -50,13 +50,15 @@ REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
 r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
 
 # -----------------------------------------------------------------
-# โหลดโมเดล YOLOv8n ครั้งเดียวตอน container เริ่มทำงาน
-# (โหลดตอน import ระดับโมดูล เพื่อไม่ต้องโหลดซ้ำทุก request)
+# โหลดโมเดล YOLOv8n ที่เทรนเอง (best.pt) ครั้งเดียวตอน container เริ่มทำงาน
+# ไฟล์ best.pt ถูก copy เข้ามาใน image ตอน build (ดู Dockerfile)
+# โมเดลนี้เทรนไว้ 3 คลาส: plastic, organic, recyclable
 # -----------------------------------------------------------------
-model = YOLO("yolov8n.pt")
+model = YOLO("best.pt")
 
-# คลาสใน COCO dataset ที่ใช้แทน "ขยะลอยน้ำ" สำหรับเดโม
-TRASH_CLASSES = {"bottle", "cup"}
+# ชื่อคลาสที่ใช้แสดงผล (ภาษาอังกฤษตามที่โจทย์กำหนด) เรียงลำดับตายตัว
+# เพื่อให้ /stats คืนค่าตามลำดับเดิมทุกครั้ง ไม่ว่า Redis จะมี key ไหนบ้าง
+TRASH_CLASSES = ["plastic", "recyclable", "organic"]
 
 
 @app.get("/health")
@@ -100,11 +102,11 @@ async def detect(file: UploadFile = File(...)):
         )
         counted_this_request[class_name] = counted_this_request.get(class_name, 0) + 1
 
-    # บันทึกจำนวนสะสมลง Redis แยกตามคลาส เช่น key "trash_count:bottle"
+    # บันทึกจำนวนสะสมลง Redis แยกตามคลาส เช่น key "trash_count:plastic"
+    # (ไม่ต้องเก็บ "trash_count:total" แยก เพราะ /stats รวมยอดจาก 3 คลาส
+    # ให้เองทุกครั้งที่เรียก กันข้อมูลไม่ตรงกันถ้ามีคลาสไหนหายไปกลางทาง)
     for class_name, count in counted_this_request.items():
         r.incrby(f"trash_count:{class_name}", count)
-    if counted_this_request:
-        r.incrby("trash_count:total", sum(counted_this_request.values()))
 
     return {
         "detections": detections,
@@ -114,10 +116,14 @@ async def detect(file: UploadFile = File(...)):
 
 @app.get("/stats")
 def stats():
-    """ดึงจำนวนขยะสะสมทั้งหมดจาก Redis มาแสดงบนแดชบอร์ด"""
-    keys = r.keys("trash_count:*")
+    """
+    ดึงจำนวนขยะสะสมทั้งหมดจาก Redis มาแสดงบนแดชบอร์ด
+    คืนค่าเรียงลำดับตายตัวเสมอ: plastic, recyclable, organic แล้วปิดท้าย
+    ด้วย total เพื่อให้ frontend เอาไปแสดงผลทีละบรรทัดตามลำดับได้ง่าย
+    """
     result = {}
-    for key in keys:
-        label = key.split(":", 1)[1]
-        result[label] = int(r.get(key))
+    for class_name in TRASH_CLASSES:
+        count = r.get(f"trash_count:{class_name}")
+        result[class_name] = int(count) if count else 0
+    result["total"] = sum(result.values())
     return result

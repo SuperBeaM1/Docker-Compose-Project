@@ -24,7 +24,7 @@
   <h1>🌊 River Trash Detector Demo</h1>
 
   <div class="card">
-    <p>อัปโหลดรูปภาพ (เช่น รูปขวดน้ำ/แก้ว) เพื่อจำลองการตรวจจับขยะลอยน้ำ</p>
+    <p>อัปโหลดรูปภาพขยะ เพื่อตรวจจับและแยกประเภท: Plastic / Recyclable / Organic waste</p>
     <input type="file" id="fileInput" accept="image/*" />
     <button onclick="detect()">ตรวจจับ</button>
     <img id="preview" style="display:none" />
@@ -66,11 +66,27 @@
       loadStats();
     }
 
+    // แปลชื่อคลาสภาษาอังกฤษเป็นข้อความที่อยากให้แสดงบนหน้าเว็บ
+    const LABELS = {
+      plastic: "Plastic",
+      recyclable: "Recyclable",
+      organic: "Organic waste",
+    };
+
     async function loadStats() {
       const statsBox = document.getElementById("stats");
       const res = await fetch(`${API_BASE}/stats`);
       const data = await res.json();
-      statsBox.textContent = JSON.stringify(data, null, 2);
+
+      // แสดงทีละบรรทัดตามลำดับ Plastic -> Recyclable -> Organic waste
+      // แล้วปิดท้ายด้วยเส้นคั่นและผลรวม (data.total มาจาก backend อยู่แล้ว)
+      const lines = Object.keys(LABELS).map(
+        (key) => `${LABELS[key]}: ${data[key] ?? 0}`
+      );
+      lines.push("------------------");
+      lines.push(`รวมทั้งหมด: ${data.total ?? 0}`);
+
+      statsBox.textContent = lines.join("\n");
     }
 
     loadStats();

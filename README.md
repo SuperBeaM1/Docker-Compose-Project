@@ -4,8 +4,10 @@
 ต่อยอดแนวคิดจากงาน Edge AI river-trash-detection ของผู้เขียน (Jetson Nano + YOLO)
 แต่ปรับให้รันผ่าน `docker compose` บนเครื่องคอมพิวเตอร์ทั่วไปได้ โดยไม่ต้องใช้ hardware พิเศษ
 
-ผู้ใช้อัปโหลดรูปภาพผ่านหน้าเว็บ ระบบจะตรวจจับวัตถุประเภท "ขวด/แก้ว" (จำลองแทนขยะลอยน้ำ)
-ด้วยโมเดล YOLOv8n แล้วสะสมจำนวนที่ตรวจพบไว้ใน Redis เพื่อแสดงเป็นสถิติบนแดชบอร์ด
+ผู้ใช้อัปโหลดรูปภาพผ่านหน้าเว็บ ระบบจะตรวจจับและแยกประเภทขยะด้วยโมเดล YOLOv8n
+ที่เทรนเอง (`backend/best.pt`) ออกเป็น 3 ประเภท ได้แก่ **Plastic**, **Recyclable**,
+และ **Organic waste** แล้วสะสมจำนวนที่ตรวจพบแยกตามประเภทไว้ใน Redis
+เพื่อแสดงเป็นสถิติบนแดชบอร์ด
 
 ## System Diagram
 
@@ -37,7 +39,8 @@ graph TD
 ├── backend/
 │   ├── Dockerfile           # custom image: FastAPI + YOLOv8n
 │   ├── requirements.txt
-│   └── main.py
+│   ├── main.py
+│   └── best.pt              # โมเดล YOLOv8n เทรนเอง (plastic/organic/recyclable)
 └── frontend/
     ├── Dockerfile           # custom image: Nginx + static site
     ├── nginx.conf

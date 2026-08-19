@@ -30,11 +30,10 @@ COPY requirements.txt .
 # --no-cache-dir ทำให้ pip ไม่เก็บ cache ไว้ใน image -> image เล็กลง
 RUN pip install --no-cache-dir -r requirements.txt
 
-# ดาวน์โหลดน้ำหนักโมเดล YOLOv8n มาเตรียมไว้ใน image ตั้งแต่ตอน build
-# (แทนที่จะให้ container ไปโหลดตอน runtime ทุกครั้งที่ container ใหม่เริ่ม)
-RUN python -c "from ultralytics import YOLO; YOLO('yolov8n.pt')"
-
-# copy โค้ดของแอปทั้งหมด (main.py) เข้าไปใน /app ภายใน container
+# copy โค้ดของแอปและไฟล์โมเดลที่เทรนเอง (main.py, best.pt) เข้าไปใน /app
+# ภายใน container — best.pt เป็นโมเดล YOLOv8n ที่เทรนจับขยะ 3 ประเภท
+# (plastic, organic, recyclable) มาก่อนแล้ว จึงไม่ต้องดาวน์โหลดโมเดล
+# จากอินเทอร์เน็ตตอน build หรือตอน runtime อีกเลย
 COPY . .
 
 # เปิด port 8000 ให้รู้ว่า container นี้ให้บริการผ่าน port นี้
